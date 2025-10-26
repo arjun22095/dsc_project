@@ -486,6 +486,49 @@ class HmdaEdaRunner:
             df[col] = df[col].astype("string").str.strip()
         return df
 
+    def _replace_strings(self) -> pd.DataFrame:
+        replacements = {
+            'not provided': 'not_provided',
+            'not originated': 'not_originated_or_not_sold',
+            'Insufficient cash': 'insufficient_cash'
+        }
+
+        def replace_func(x):
+            if isinstance(x, str):
+                for old, new in replacements.items():
+                    if old in x:
+                        return new
+            return x
+
+        df = self.df.applymap(replace_func)
+
+        return df
+
+    def _remove_outliers_iqr(self, columns, factor=1.5) -> pd.DataFrame:
+        cleaned_df = self.df.copy()
+
+        for col in columns:
+            if col not in cleaned_df.columns:
+                print(f"Warning: Column '{col}' not found in DataFrame. Skipping.")
+                continue
+
+            if not pd.api.types.is_numeric_dtype(cleaned_df[col]):
+                print(f"Warning: Column '{col}' is not numeric. Skipping.")
+                continue
+
+            Q1 = cleaned_df[col].quantile(0.25)
+            Q3 = cleaned_df[col].quantile(0.75)
+            IQR = Q3 - Q1
+
+            lower_bound = Q1 - factor * IQR
+            upper_bound = Q3 + factor * IQR
+
+            cleaned_df = cleaned_df[
+                (cleaned_df[col] >= lower_bound) & (cleaned_df[col] <= upper_bound)
+                ]
+
+        return cleaned_df
+
     def _add_derived_features(self) -> pd.DataFrame:
         if self.df is None:
             raise ValueError("self.df is not loaded.")
@@ -554,8 +597,10 @@ class HmdaEdaRunner:
 
     def load_and_prepare_data(self) -> None:
         self.df = self._load_hmda()
+        self.df = self._replace_strings()
         self.df = self._clean_columns()
         self.df = self._add_derived_features()
+        self.df = self._remove_outliers_iqr(["loan_amount_000s", "applicant_income_000s", "loan_to_income_ratio"])
         self._identify_columns()
 
         self.plotter = HmdaPlotter(self.df, self.figs_dir)
