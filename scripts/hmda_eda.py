@@ -77,17 +77,27 @@ class HmdaPlotter:
         self._safe_savefig(out_path)
 
     def plot_pie(
-        self,
-        col: str,
-        out_path: str,
-        top_n: Optional[int] = None,
-        title: Optional[str] = None,
-        exclude_na: bool = False,
+            self,
+            col: str,
+            out_path: str,
+            top_n: Optional[int] = None,
+            title: Optional[str] = None,
+            exclude_na: bool = False,
     ) -> None:
         """Creates and saves a pie chart."""
         vc: pd.Series = self.df[col].value_counts(dropna=exclude_na)
+
         if top_n:
             vc = vc.head(top_n)
+
+        # Combine categories contributing < 2% into "Others"
+        total = vc.sum()
+        vc_major = vc[vc / total >= 0.02]
+        vc_minor_sum = vc[vc / total < 0.02].sum()
+        if vc_minor_sum > 0:
+            vc_major.loc["Others"] = vc_minor_sum
+        vc = vc_major
+
         plt.figure(figsize=(8, 8))
         plt.pie(
             vc.values,
@@ -168,13 +178,13 @@ class HmdaPlotter:
         self._safe_savefig(out_path)
 
     def plot_stacked_bar(
-        self,
-        row_cat: str,
-        col_cat: str,
-        out_path: str,
-        normalize: bool = True,
-        title: Optional[str] = None,
-        exclude_na: bool = False,
+            self,
+            row_cat: str,
+            col_cat: str,
+            out_path: str,
+            normalize: bool = True,
+            title: Optional[str] = None,
+            exclude_na: bool = False,
     ) -> None:
         """Creates and saves a stacked bar chart."""
         ct: pd.DataFrame = pd.crosstab(
@@ -182,10 +192,18 @@ class HmdaPlotter:
         )
         if normalize:
             ct = (ct.T / ct.T.sum()).T
-        ct.plot(kind="bar", stacked=True, figsize=(12, 6), colormap="Set2")
+
+        ax = ct.plot(kind="bar", stacked=True, figsize=(12, 6), colormap="Set2")
+
+        # shorten X-axis labels > 20 chars
+        new_labels = [
+            label[:20] + ".." if len(str(label)) > 20 else str(label)
+            for label in ct.index
+        ]
+        ax.set_xticklabels(new_labels, rotation=20, ha="right")
+
         plt.title(title or f"{row_cat} by {col_cat}")
         plt.ylabel("Proportion" if normalize else "Count")
-        plt.xticks(rotation=20, ha="right")
         plt.legend(title=col_cat, bbox_to_anchor=(1.04, 1), loc="upper left")
         plt.tight_layout()
         self._safe_savefig(out_path)
@@ -842,6 +860,7 @@ class HmdaEdaRunner:
             self.generate_correlations()
             self.generate_approval_rates()
             self._create_manifest()
+            print(f"Number of instances × attributes = {self.df.shape[0]} × {self.df.shape[1]} = {self.df.shape[0] * self.df.shape[1]}")
             print(f"\n[OK] EDA complete. Reports saved under: {self.outdir}")
         except Exception as e:
             print(f"\n[ERROR] EDA failed: {e}")
